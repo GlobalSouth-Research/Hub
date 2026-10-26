@@ -13,6 +13,38 @@ Current tags of the scholar notifications:
 global south, informal, settlement, urban, development, sustainable, biomass, mining, 
 ```
 
+A copy of the last newsletter is accessible [here](letters/current.html).
+
+
+# Featured 
+<hr>
+🗺️ News: MapBiomas DRC Is Now Available!
+
+<p><strong>
+    The first MapBiomas land-cover and land-use collection for the Democratic Republic of the Congo is here!
+</strong></p>
+
+Released in August 2026, MapBiomas DRC Collection 1 provides annual land-cover and land-use maps covering 2000–2025, opening new opportunities to analyse land-use dynamics, forest cover, and landscape change across the country.
+
+<p>
+<a href="https://plataforma.mapbiomas.org/coverage/coverage_coverage-wv8p91?t%5BregionKey%5D=democratic-republic-of-congo&tl%5Byear%5D=2025">
+    <img src="feature/feature_main.png" alt="MapBiomas DRC land-cover and land-use map for 2025" width="100%" />
+</a>
+<br/>
+<em>MapBiomas DRC — Land cover and land use, 2025. Click the map to explore the interactive platform.</em>
+</p>
+
+✨ Highlights
+- 25 years of mapping: Annual maps spanning 2000–2025.
+- Nine thematic classes: A national classification of land cover and land use.
+- Open data: Publicly accessible data for research, monitoring, and environmental analysis.
+- African expansion: The first MapBiomas initiative on the African continent.
+<hr>
+
+Source: MapBiomas Democratic Republic of the Congo. Please consult the official documentation for data access, methodology, and citation requirements.
+
+# Frequently used Datasets and Download helpers
+
 | Dataset                                       | Link                                                                                   | Script to download                                              | 
 |-----------------------------------------------|----------------------------------------------------------------------------------------|-----------------------------------------------------------------| 
 |                                               |                                                                                        |                                                                 |
@@ -51,4 +83,4 @@ global south, informal, settlement, urban, development, sustainable, biomass, mi
 |                                               |                                                                                        |                                                                 |
 |                                               |                                                                                        |                                                                 |
 | **NIGHTTIME LIGHTS & SOCIO-ECONOMIC**         |                                                                                        |                                                                 | 
-| VIIRS Nighttime Lights (VNP46A1/A2)           | [NASA LAADS DAAC](https://ladsweb.modaps.eosdis.nasa.gov/)                             | [download_viirs_ntl.py](scripts/download_viirs_ntl.py)          | 
+| VIIRS Nighttime Lights (VNP46A1/A2)           | [NASA LAADS DAAC](https://ladsweb.modaps.eosdis.nasa.gov/)                             | [download_viirs_ntl.py](scripts/download_viirs_ntl.py)          |

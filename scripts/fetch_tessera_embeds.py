@@ -2,27 +2,12 @@ import argparse
 import subprocess
 from pathlib import Path
 import geopandas as gpd
-import rasterio
-from rasterio.warp import transform_bounds
 
 
 def get_tessera(input_path: Path, expand_factor: float = 1):
     ext = input_path.suffix.lower()
 
-    if ext == ".tif" or ext == ".tiff":
-        with rasterio.open(input_path) as src:
-            bounds = src.bounds  # (left, bottom, right, top)
-            src_crs = src.crs
-
-            # Reproject bounds to WGS84 (EPSG:4326) if not already
-            if src_crs != "EPSG:4326":
-                minx, miny, maxx, maxy = transform_bounds(
-                    src_crs, "EPSG:4326", bounds.left, bounds.bottom, bounds.right, bounds.top
-                )
-            else:
-                minx, miny, maxx, maxy = bounds.left, bounds.bottom, bounds.right, bounds.top
-
-    elif ext == ".gpkg" or ext == ".shp":
+    if ext == ".gpkg" or ext == ".shp":
         gdf = gpd.read_file(input_path)
 
         # Reproject to WGS84 if needed

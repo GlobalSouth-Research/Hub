@@ -2,11 +2,11 @@ const DLR_WSF_WMS_URL = "https://geoservice.dlr.de/eoc/oseo/wms";
 
 export const wsf2015Plugin = {
     id: "wsf2015",
-    description: "Streams World Settlement Footprint (WSF) 2015 (10m) from DLR OGC WMS into your browser.",
+    description: "Streams World Settlement Footprint (WSF) 2015 (30m) from DLR OGC WMS into your browser.",
     bundleName: "wsf2015_tiffs.zip",
     controlsHTML: `
         <div class="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
-            <strong>WSF 2015 (10m):</strong> Human settlement extent derived from Landsat-8 & Sentinel-1 via DLR OSEO WMS.
+            <strong>WSF 2015 (30m):</strong> Human settlement extent derived from Landsat-8 & Sentinel-1 via DLR OSEO WMS.
         </div>
     `,
 

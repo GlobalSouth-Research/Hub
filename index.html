@@ -32,8 +32,9 @@
         <div class="mb-4">
             <label for="dataset" class="block text-sm font-medium text-gray-700 mb-2">Select Dataset</label>
             <select id="dataset" class="w-full border border-gray-300 rounded-lg p-2.5 bg-white">
-                <option value="wsf2015">World Settlement Footprint (WSF) 2015 — DLR COG</option>
-                <option value="tessera">TESSERA v1.1 (dclimate) — Zarr Embeddings</option>
+                <option value="wsf2015">World Settlement Footprint (WSF) 2015 — DLR</option>
+                <option value="wsf2019">World Settlement Footprint (WSF) 2019 — DLR</option>
+                <option value="tessera">TESSERA v1.1 (dclimate) - Embeddings</option>
             </select>
         </div>
 
@@ -71,13 +72,15 @@
     </div>
 
     <script type="module">
-        import { tesseraPlugin } from "/Hub/scripts/web/fetch_tessera.js";
-        import { wsf2015Plugin } from "/Hub/scripts/web/download_wsf2015.js";
+        import { tesseraPlugin } from "./scripts/web/fetch_tessera.js";
+        import { wsf2015Plugin } from "./scripts/web/download_wsf2015.js";
+        import { wsf2019Plugin } from "./scripts/web/download_wsf2019.js";
 
         const MAX_AREA_KM2 = 25;
 
         const PLUGINS = {
             wsf2015: wsf2015Plugin,
+            wsf2019: wsf2019Plugin,
             tessera: tesseraPlugin,
         };
 

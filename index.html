@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dataset Downloader</title>
+    <title>GeoData Fetcher</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Pyodide: only used for GeoPackage reading, reprojection and writing the GeoTIFF -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js"></script>
 
     <style>
@@ -28,27 +27,25 @@
 
     <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md my-6">
         <h1 class="text-2xl font-bold text-center mb-2 text-blue-600">GeoData Fetcher</h1>
-        <p class="text-sm text-gray-500 text-center mb-6">Streams TESSERA Zarr data straight into your browser.</p>
+        <p id="subtitle" class="text-sm text-gray-500 text-center mb-6">Streams geospatial datasets straight into your browser.</p>
 
         <div class="mb-4">
             <label for="dataset" class="block text-sm font-medium text-gray-700 mb-2">Select Dataset</label>
             <select id="dataset" class="w-full border border-gray-300 rounded-lg p-2.5 bg-white">
-                <option value="v1.1-dclimate">TESSERA v1.1 (dclimate), Zarr</option>
+                <option value="wsf2015">World Settlement Footprint (WSF) 2015 — DLR COG</option>
+                <option value="tessera">TESSERA v1.1 (dclimate) — Zarr Embeddings</option>
             </select>
         </div>
 
-        <div class="mb-6">
-            <label for="year" class="block text-sm font-medium text-gray-700 mb-2">Year</label>
-            <input id="year" type="number" value="2024" min="2017" max="2025"
-                   class="w-full border border-gray-300 rounded-lg p-2.5 bg-white">
-        </div>
+        <!-- Dataset-specific dynamic controls injected by each plugin module -->
+        <div id="extra-controls" class="mb-6"></div>
 
         <div class="mb-6">
             <label class="block text-sm font-medium text-gray-700 mb-2">Upload GeoPackage</label>
             <div id="dropzone" class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:bg-gray-50 transition-colors" onclick="document.getElementById('fileInput').click()">
                 <p class="text-sm text-gray-600"><span class="font-semibold text-blue-600">Click to upload</span> or drag and drop</p>
-                <p class="text-xs text-gray-500 mt-1">Only .gpkg files accepted. Area must be smaller than 1 km².</p>
-                <input type="file" id="fileInput" class="hidden" accept=".gpkg" onchange="handleFile(this.files)">
+                <p class="text-xs text-gray-500 mt-1">Only .gpkg files accepted. Area must be smaller than 5 km × 5 km (25 km²).</p>
+                <input type="file" id="fileInput" class="hidden" accept=".gpkg">
             </div>
             <div id="file-info" class="hidden mt-3 text-sm text-green-600 bg-green-50 p-2 rounded-lg border border-green-200"></div>
         </div>
@@ -74,18 +71,27 @@
     </div>
 
     <script type="module">
-        import * as zarr from "https://esm.sh/zarrita";
+        import { tesseraPlugin } from "/Hub/scripts/web/fetch_tessera.js";
+        import { wsf2015Plugin } from "/Hub/scripts/web/download_wsf2015.js";
 
-        const STORE_URL = "https://data.source.coop/tessera/tessera/zarr/v1.1-dclimate";
-        const MAX_AREA_KM2 = 5;
+        const MAX_AREA_KM2 = 25;
 
-        const dropzone = document.getElementById('dropzone');
-        const fileInfo = document.getElementById('file-info');
-        const runBtn = document.getElementById('runBtn');
-        const statusDiv = document.getElementById('status');
-        const loadingIndicator = document.getElementById('loading-indicator');
-        const loadingText = document.getElementById('loading-text');
-        const logEl = document.getElementById('log');
+        const PLUGINS = {
+            wsf2015: wsf2015Plugin,
+            tessera: tesseraPlugin,
+        };
+
+        const datasetSelect = document.getElementById("dataset");
+        const extraControls = document.getElementById("extra-controls");
+        const subtitle = document.getElementById("subtitle");
+        const dropzone = document.getElementById("dropzone");
+        const fileInput = document.getElementById("fileInput");
+        const fileInfo = document.getElementById("file-info");
+        const runBtn = document.getElementById("runBtn");
+        const statusDiv = document.getElementById("status");
+        const loadingIndicator = document.getElementById("loading-indicator");
+        const loadingText = document.getElementById("loading-text");
+        const logEl = document.getElementById("log");
 
         let selectedFile = null;
         let pyodide = null;
@@ -95,35 +101,17 @@
             logEl.textContent += a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ") + "\n";
         };
 
-        // ------------------------------------------------------------------
-        // Codecs: TESSERA stores use Blosc/Zstd. Register them from numcodecs
-        // (wasm). Blosc/Zstd data is self-describing, so the config is ignored.
-        // If zarrita already ships these codecs in your version, this is harmless.
-        // ------------------------------------------------------------------
-        function registerNumcodecs() {
-            const make = (url, cfg) => async () => {
-                const mod = (await import(url)).default;
-                return {
-                    kind: "bytes_to_bytes",
-                    fromConfig: () => {
-                        const c = mod.fromConfig(cfg);
-                        return { encode: async (d) => c.encode(d), decode: async (d) => c.decode(d) };
-                    },
-                };
-            };
-            zarr.registry.set("blosc", make("https://esm.sh/numcodecs/blosc", { clevel: 5, cname: "lz4", shuffle: 1, blocksize: 0 }));
-            zarr.registry.set("zstd", make("https://esm.sh/numcodecs/zstd", { level: 1 }));
-        }
-
-        // ------------------------------------------------------------------
-        // Python helpers (Pyodide)
-        // ------------------------------------------------------------------
-        const PY_SETUP = `
+        // Shared Python AOI reader & GeoTIFF/ZIP writer used by all dataset plugins
+        const PY_COMMON = `
 import json, zipfile, numpy as np, geopandas as gpd
 from shapely.geometry import box
 import tifffile
 
 outputs = []
+
+def reset_outputs():
+    global outputs
+    outputs = []
 
 def read_bounds(fn):
     gdf = gpd.read_file(fn)
@@ -131,8 +119,7 @@ def read_bounds(fn):
         gdf = gdf.set_crs("EPSG:4326")
     gdf = gdf.to_crs("EPSG:4326")
     b = [float(v) for v in gdf.total_bounds]
-    # Area of the bounding box (what actually gets downloaded) in an equal-area CRS
-    bb = gpd.GeoSeries([box(*b)], crs="EPSG:4326").to_crs("EPSG:6933")
+    bb = gpd.GeoSeries([box(*b)], crs="EPSG:4326")
     area_km2 = float(bb.area.iloc[0]) / 1e6
     return json.dumps({"bounds": b, "area_km2": area_km2})
 
@@ -140,285 +127,155 @@ def bounds_in_crs(minx, miny, maxx, maxy, crs):
     s = gpd.GeoSeries([box(minx, miny, maxx, maxy)], crs="EPSG:4326").to_crs(crs)
     return json.dumps([float(v) for v in s.total_bounds])
 
-def add_zone(zone, emb_shape, layout, sc_shape, crs, year):
-    name = "utm%02d" % int(zone)
-    e = np.frombuffer(_emb.to_bytes(), dtype=np.int8).reshape(json.loads(emb_shape))
-    if layout == "HWB":
-        e = np.transpose(e, (2, 0, 1))
-    s = np.frombuffer(_sc.to_bytes(), dtype=np.float32).reshape(json.loads(sc_shape))
-    xs = np.frombuffer(_xs.to_bytes(), dtype=np.float64).copy()
-    ys = np.frombuffer(_ys.to_bytes(), dtype=np.float64).copy()
-
-    # Make the raster north-up (row 0 = northernmost)
-    if len(ys) > 1 and ys[0] < ys[-1]:
-        e = e[:, ::-1, :]
-        s = s[::-1, :]
-        ys = ys[::-1]
-
-    # Pixel size and top-left corner (coordinates are assumed to be pixel centres)
-    sx = abs((xs[-1] - xs[0]) / (len(xs) - 1)) if len(xs) > 1 else 10.0
-    sy = abs((ys[0] - ys[-1]) / (len(ys) - 1)) if len(ys) > 1 else 10.0
-
-    # The store may use the northern UTM code with negative northings for the
-    # southern hemisphere; convert to the real southern code (EPSG:327xx, +10,000,000 m).
-    epsg = int(str(crs).split(":")[1])
-    ys_geo = ys
-    if 32601 <= epsg <= 32660 and ys.mean() < 0:
-        epsg += 100
-        ys_geo = ys + 10_000_000.0
-    x0 = float(xs[0] - sx / 2)
-    y0 = float(ys_geo[0] + sy / 2)
-
-    # Dequantise: int8 * scale. NaN (water) / +inf (no data yet) -> NaN
-    valid = np.isfinite(s)
-    scale = np.where(valid, s, np.float32("nan")).astype(np.float32)
-    data = e.astype(np.float32) * scale[None, :, :]   # all 128 bands
-    data = np.ascontiguousarray(data)
-
+def write_geotiff_2d(fn, shape, dtype_str, epsg, x0, y0, sx, sy, nodata_val):
+    arr = np.frombuffer(_raster_buf.to_bytes(), dtype=np.dtype(dtype_str)).reshape(json.loads(shape))
+    arr = np.ascontiguousarray(arr)
+    is_projected = (epsg != 4326)
     geokeys = (
         1, 1, 0, 4,
-        1024, 0, 1, 1,        # GTModelType = projected
-        1025, 0, 1, 1,        # GTRasterType = PixelIsArea
-        3072, 0, 1, epsg,     # ProjectedCSType
-        3076, 0, 1, 9001,     # ProjLinearUnits = metre
+        1024, 0, 1, 1 if is_projected else 2,
+        1025, 0, 1, 1,
+        3072 if is_projected else 2048, 0, 1, int(epsg),
+        3076 if is_projected else 2054, 0, 1, 9001 if is_projected else 9102,
     )
     extratags = [
-        (33550, "d", 3, (float(sx), float(sy), 0.0), True),                 # ModelPixelScale
-        (33922, "d", 6, (0.0, 0.0, 0.0, x0, y0, 0.0), True),                # ModelTiepoint
-        (34735, "H", len(geokeys), geokeys, True),                          # GeoKeyDirectory
-        (42113, "s", 0, "nan", True),                                       # GDAL_NODATA
+        (33550, "d", 3, (float(sx), float(sy), 0.0), True),
+        (33922, "d", 6, (0.0, 0.0, 0.0, float(x0), float(y0), 0.0), True),
+        (34735, "H", len(geokeys), geokeys, True),
     ]
+    if nodata_val is not None:
+        extratags.append((42113, "s", 0, str(nodata_val), True))
 
-    fn = "tessera_%s_%d.tif" % (name, int(year))
-    kw = dict(photometric="minisblack", planarconfig="separate", extratags=extratags)
+    kw = dict(photometric="minisblack", extratags=extratags)
     try:
-        tifffile.imwrite(fn, data, compression="zlib", **kw)
+        tifffile.imwrite(fn, arr, compression="zlib", **kw)
     except Exception as ex:
         print("zlib compression failed (%s); writing uncompressed" % ex)
-        tifffile.imwrite(fn, data, **kw)
+        tifffile.imwrite(fn, arr, **kw)
     outputs.append(fn)
-    print("%s: EPSG:%d, %d bands, %dx%d px, origin (%.1f, %.1f), pixel %.2f x %.2f" % (
-        name, epsg, data.shape[0], data.shape[2], data.shape[1], x0, y0, sx, sy))
+    print("Saved %s (%dx%d px, EPSG:%d)" % (fn, arr.shape[1], arr.shape[0], epsg))
 
-def save():
+def package_outputs(zip_name="geodata_bundle.zip"):
     if len(outputs) == 1:
         return outputs[0]
-    zn = "tessera_tiffs.zip"
-    with zipfile.ZipFile(zn, "w") as z:
+    with zipfile.ZipFile(zip_name, "w") as z:
         for fn in outputs:
             z.write(fn)
-    return zn
+    return zip_name
 `;
+
+        function renderActivePluginUI() {
+            const plugin = PLUGINS[datasetSelect.value];
+            subtitle.textContent = plugin.description;
+            extraControls.innerHTML = plugin.controlsHTML || "";
+        }
+
+        datasetSelect.addEventListener("change", renderActivePluginUI);
+        renderActivePluginUI();
 
         async function initPyodide() {
             try {
                 pyodide = await loadPyodide();
                 loadingText.innerText = "Feeding GeoPandas to the Bear (this takes a moment)...";
                 await pyodide.loadPackage(["geopandas", "micropip"]);
-                // tifffile is pure Python; used to write the GeoTIFF
                 await pyodide.runPythonAsync("import micropip\nawait micropip.install('tifffile==2024.8.30')");
-                pyodide.runPython(PY_SETUP);
-                registerNumcodecs();
+                pyodide.runPython(PY_COMMON);
 
-                loadingIndicator.classList.add('hidden');
-                runBtn.classList.remove('hidden');
+                for (const plugin of Object.values(PLUGINS)) {
+                    if (plugin.init) await plugin.init(pyodide);
+                }
+
+                loadingIndicator.classList.add("hidden");
+                runBtn.classList.remove("hidden");
                 runBtn.disabled = !selectedFile;
             } catch (err) {
                 console.error(err);
                 log("INIT ERROR:", String(err));
-                loadingIndicator.classList.add('hidden');
+                loadingIndicator.classList.add("hidden");
                 statusDiv.innerHTML = "❌ The Bear got sick. Failed to load Python.";
                 statusDiv.className = "mt-4 text-center text-sm font-medium text-red-600 block";
             }
         }
         initPyodide();
 
-        // ------------------------------------------------------------------
-        // UI wiring
-        // ------------------------------------------------------------------
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
+        // Drag & drop + file input wiring
+        ["dragenter", "dragover", "dragleave", "drop"].forEach(ev => {
             dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); }, false);
             document.body.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); }, false);
         });
-        dropzone.addEventListener('drop', (e) => handleFile(e.dataTransfer.files));
+        dropzone.addEventListener("drop", (e) => handleFile(e.dataTransfer.files));
+        fileInput.addEventListener("change", (e) => handleFile(e.target.files));
 
         function handleFile(files) {
-            if (files.length > 0 && files[0].name.toLowerCase().endsWith('.gpkg')) {
+            if (files.length > 0 && files[0].name.toLowerCase().endsWith(".gpkg")) {
                 selectedFile = files[0];
                 fileInfo.innerHTML = `Ready: <strong>${selectedFile.name}</strong>`;
-                fileInfo.classList.remove('hidden');
+                fileInfo.classList.remove("hidden");
                 if (pyodide) runBtn.disabled = false;
-                statusDiv.classList.add('hidden');
+                statusDiv.classList.add("hidden");
             } else {
-                alert('Please upload a valid .gpkg file.');
+                alert("Please upload a valid .gpkg file.");
             }
         }
-        window.handleFile = handleFile; // used by the inline onchange handler
 
-        // ------------------------------------------------------------------
-        // Zarr reading (zarrita.js)
-        // ------------------------------------------------------------------
-        const zoneOf = (lon) => Math.min(60, Math.max(1, Math.floor((lon + 180) / 6) + 1));
-
-        async function openArray(loc, name) {
-            return zarr.open(loc.resolve(name), { kind: "array" });
-        }
-
-        async function readCoord(groupLoc, names) {
-            for (const n of names) {
-                try {
-                    const arr = await openArray(groupLoc, n);
-                    const r = await zarr.get(arr);
-                    return r.data;
-                } catch (e) { /* try next name */ }
-            }
-            throw new Error("None of these coordinate arrays exist: " + names.join(", "));
-        }
-
-        function indexRange(values, lo, hi) {
-            let i0 = -1, i1 = -1;
-            for (let i = 0; i < values.length; i++) {
-                const v = values[i];
-                if (v >= lo && v <= hi) { if (i0 < 0) i0 = i; i1 = i; }
-            }
-            return i0 < 0 ? null : [i0, i1 + 1];
-        }
-
-        async function readZone(store, zone, year, lonLatBounds) {
-            const zname = "utm" + String(zone).padStart(2, "0");
-            const groupLoc = zarr.root(store).resolve(zname);
-            const grp = await zarr.open(groupLoc, { kind: "group" });
-            log(`[${zname}] group attrs:`, grp.attrs);
-
-            const crs = grp.attrs["proj:code"];
-            if (!crs) throw new Error(`${zname}: no 'proj:code' attribute found (see debug log)`);
-
-            // Clip bbox to this zone's longitude range, then reproject to the store CRS
-            const zl = -180 + 6 * (zone - 1), zr = zl + 6;
-            const [bx0, by0, bx1, by1] = lonLatBounds;
-            const cl = Math.max(bx0, zl), cr = Math.min(bx1, zr - 1e-9);
-            const b = JSON.parse(pyodide.globals.get("bounds_in_crs")(cl, by0, cr, by1, crs));
-            log(`[${zname}] CRS ${crs}, bounds in CRS:`, b);
-
-            const xs = await readCoord(groupLoc, ["easting", "x"]);
-            const ys = await readCoord(groupLoc, ["northing", "y"]);
-            const times = Array.from(await readCoord(groupLoc, ["time"]), Number);
-            const ti = times.indexOf(year);
-            if (ti < 0) throw new Error(`Year ${year} not in time axis: ${times.join(", ")}`);
-
-            const xr = indexRange(xs, b[0], b[2]);
-            const yr = indexRange(ys, b[1], b[3]);
-            if (!xr || !yr) { log(`[${zname}] bbox does not overlap the stored grid`); return null; }
-            const h = yr[1] - yr[0], w = xr[1] - xr[0];
-            log(`[${zname}] window: x ${xr}, y ${yr} -> ${w} x ${h} px`);
-
-            const emb = await openArray(groupLoc, "embeddings");
-            const sc = await openArray(groupLoc, "scales");
-            log(`[${zname}] embeddings shape=${JSON.stringify(emb.shape)} chunks=${JSON.stringify(emb.chunks)} dtype=${emb.dtype}`);
-            log(`[${zname}] scales shape=${JSON.stringify(sc.shape)} dtype=${sc.dtype}`);
-
-            const ysl = zarr.slice(yr[0], yr[1]);
-            const xsl = zarr.slice(xr[0], xr[1]);
-
-            let embSel, layout;
-            if (emb.shape.length === 4 && emb.shape[1] === 128) { embSel = [ti, null, ysl, xsl]; layout = "BHW"; }
-            else if (emb.shape.length === 4 && emb.shape[3] === 128) { embSel = [ti, ysl, xsl, null]; layout = "HWB"; }
-            else throw new Error("Unexpected embeddings shape " + JSON.stringify(emb.shape));
-
-            let scSel;
-            if (sc.shape.length === 3) scSel = [ti, ysl, xsl];
-            else if (sc.shape.length === 2) scSel = [ysl, xsl];
-            else throw new Error("Unexpected scales shape " + JSON.stringify(sc.shape));
-
-            loadingText.innerText = `Bear is chewing ${zname} (${w} x ${h} px)...`;
-            const embChunk = await zarr.get(emb, embSel);
-            const scChunk = await zarr.get(sc, scSel);
-
-            return {
-                zone, crs, layout, year,
-                embData: embChunk.data, embShape: embChunk.shape,
-                scData: scChunk.data, scShape: scChunk.shape,
-                xs: Float64Array.from(xs.slice(xr[0], xr[1])),
-                ys: Float64Array.from(ys.slice(yr[0], yr[1])),
-                meta: { year, crs, layout, x_range: xr, y_range: yr, bounds_crs: b },
-            };
-        }
-
-        // ------------------------------------------------------------------
-        // Main
-        // ------------------------------------------------------------------
-        runBtn.addEventListener('click', async () => {
+        runBtn.addEventListener("click", async () => {
             if (!selectedFile || !pyodide) return;
 
-            runBtn.classList.add('hidden');
-            loadingIndicator.classList.remove('hidden');
-            statusDiv.classList.add('hidden');
+            const plugin = PLUGINS[datasetSelect.value];
+            runBtn.classList.add("hidden");
+            loadingIndicator.classList.remove("hidden");
+            statusDiv.classList.add("hidden");
             loadingText.innerText = "Bear is reading your GeoPackage...";
             logEl.textContent = "";
 
             try {
-                const year = parseInt(document.getElementById('year').value, 10);
-                const zone2name = (z) => "utm" + String(z).padStart(2, "0");
+                pyodide.globals.get("reset_outputs")();
 
-                // 1. GeoPackage -> lon/lat bounds (Python)
                 const buf = await selectedFile.arrayBuffer();
                 pyodide.FS.writeFile(selectedFile.name, new Uint8Array(buf));
                 const info = JSON.parse(pyodide.globals.get("read_bounds")(selectedFile.name));
                 const bounds = info.bounds;
                 log("lon/lat bounds:", bounds, `bbox area: ${info.area_km2.toFixed(3)} km²`);
-                if (info.area_km2 >= MAX_AREA_KM2) {
-                    throw new Error(`Area is too big (${info.area_km2.toFixed(2)} km²). Please upload an area smaller than ${MAX_AREA_KM2} km².`);
-                }
 
-                // 2. Open store (consolidated metadata if available)
-                loadingText.innerText = "Bear is knocking on Source Coop's door...";
-                let store = new zarr.FetchStore(STORE_URL);
-                if (typeof zarr.tryWithConsolidatedMetadata === "function") {
-                    store = await zarr.tryWithConsolidatedMetadata(store);
-                }
-
-                // 3. One read per UTM zone the bbox touches
-                const zones = [];
-                for (let z = zoneOf(bounds[0]); z <= zoneOf(bounds[2]); z++) zones.push(z);
-                log("UTM zones:", zones);
-
-                let written = 0;
-                for (const z of zones) {
-                    const r = await readZone(store, z, year, bounds);
-                    if (!r) continue;
-                    pyodide.globals.set("_emb", r.embData);
-                    pyodide.globals.set("_sc", r.scData);
-                    pyodide.globals.set("_xs", r.xs);
-                    pyodide.globals.set("_ys", r.ys);
-                    loadingText.innerText = `Bear is baking ${zone2name(r.zone)} into a GeoTIFF...`;
-                    pyodide.globals.get("add_zone")(
-                        r.zone, JSON.stringify(r.embShape), r.layout,
-                        JSON.stringify(r.scShape), r.crs, r.year
+                if (info.area_km2 > MAX_AREA_KM2) {
+                    throw new Error(
+                        `Area is too big (${info.area_km2.toFixed(2)} km²). Please upload an area smaller than 5 km × 5 km (${MAX_AREA_KM2} km²).`
                     );
-                    written++;
                 }
-                if (written === 0) throw new Error("No data overlapped your area (ocean, or outside coverage).");
 
-                // 4. Save GeoTIFF (or zip if several UTM zones) and trigger the browser download
-                const fileName = pyodide.globals.get("save")();
+                const written = await plugin.run({
+                    pyodide,
+                    bounds,
+                    log,
+                    setStatus: (msg) => { loadingText.innerText = msg; },
+                });
+
+                if (!written || written === 0) {
+                    throw new Error("No data overlapped your area (ocean, or outside coverage).");
+                }
+
+                const fileName = pyodide.globals.get("package_outputs")(plugin.bundleName || "geodata_bundle.zip");
                 const content = pyodide.FS.readFile(fileName);
                 const mime = fileName.endsWith(".zip") ? "application/zip" : "image/tiff";
                 const blob = new Blob([content], { type: mime });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
-                link.href = url; link.download = fileName;
-                document.body.appendChild(link); link.click();
-                document.body.removeChild(link); URL.revokeObjectURL(url);
+                link.href = url;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
 
-                loadingIndicator.classList.add('hidden');
-                runBtn.classList.remove('hidden');
-                statusDiv.innerHTML = `✅ <strong>Success!</strong> Downloaded ${fileName} (${written} zone${written > 1 ? "s" : ""})`;
+                loadingIndicator.classList.add("hidden");
+                runBtn.classList.remove("hidden");
+                statusDiv.innerHTML = `✅ <strong>Success!</strong> Downloaded ${fileName} (${written} tile${written > 1 ? "s" : ""})`;
                 statusDiv.className = "mt-4 p-3 rounded-lg text-center text-sm font-medium text-green-700 bg-green-50 border border-green-200 block";
             } catch (error) {
                 console.error(error);
-                log("ERROR:", String(error && error.stack || error));
-                loadingIndicator.classList.add('hidden');
-                runBtn.classList.remove('hidden');
+                log("ERROR:", String((error && error.stack) || error));
+                loadingIndicator.classList.add("hidden");
+                runBtn.classList.remove("hidden");
                 statusDiv.innerHTML = "❌ " + String(error.message || error) + " <br><span class='text-xs'>(see debug log)</span>";
                 statusDiv.className = "mt-4 text-center text-sm font-medium text-red-600 block";
             } finally {

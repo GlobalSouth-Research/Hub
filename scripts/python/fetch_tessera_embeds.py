@@ -88,7 +88,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
 
     # Alternatively uncomment the following section if executin from python
     get_tessera(input_path="your input file", expand_factor=1.0)

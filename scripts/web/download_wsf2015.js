@@ -20,7 +20,7 @@ function getWsf2015TileIds(bounds) {
 
 export const wsf2015Plugin = {
     id: "wsf2015",
-    description: "Streams raw World Settlement Footprint (WSF) 2015 (30m) GeoTIFF from DLR.",
+    description: "Streams raw World Settlement Footprint (WSF) 2015 (10m) GeoTIFF from DLR.",
     bundleName: "wsf2015_tiffs.zip",
     controlsHTML: `
         <div class="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
@@ -41,36 +41,33 @@ export const wsf2015Plugin = {
             const tiff = await GeoTIFF.fromUrl(viaProxy(rawUrl));
             const image = await tiff.getImage();
 
-            const [imgMinX, imgMinY, imgMaxX, imgMaxY] = image.getBoundingBox();
-            const clipBox = [
-                Math.max(bounds[0], imgMinX),
-                Math.max(bounds[1], imgMinY),
-                Math.min(bounds[2], imgMaxX),
-                Math.min(bounds[3], imgMaxY),
-            ];
-            if (clipBox[0] >= clipBox[2] || clipBox[1] >= clipBox[3]) continue;
-
-            const rasters = await image.readRasters({
-                bbox: clipBox,
-                interleave: false,
-            });
-            const band0 = rasters[0];
-            const width = rasters.width;
-            const height = rasters.height;
-            if (!width || !height) continue;
-
+            const imgWidth = image.getWidth();
+            const imgHeight = image.getHeight();
             const [resX, resY] = image.getResolution();
             const sx = Math.abs(resX);
             const sy = Math.abs(resY);
             const [originX, originY] = image.getOrigin();
 
-            const col0 = Math.max(0, Math.floor((clipBox[0] - originX) / sx));
-            const row0 = Math.max(0, Math.floor((originY - clipBox[3]) / sy));
+            const col0 = Math.max(0, Math.floor((bounds[0] - originX) / sx));
+            const col1 = Math.min(imgWidth, Math.ceil((bounds[2] - originX) / sx));
+            const row0 = Math.max(0, Math.floor((originY - bounds[3]) / sy));
+            const row1 = Math.min(imgHeight, Math.ceil((originY - bounds[1]) / sy));
+
+            if (col1 <= col0 || row1 <= row0) continue;
+
+            const rasters = await image.readRasters({
+                window: [col0, row0, col1, row1],
+                interleave: false,
+            });
+            const band0 = rasters[0];
+            const width = col1 - col0;
+            const height = row1 - row0;
+
             const x0 = originX + col0 * sx;
             const y0 = originY - row0 * sy;
             const nodata = image.getGDALNoData();
 
-            log(`[wsf2015] Clipping ${tileId}: ${width}x${height} px`);
+            log(`[wsf2015] Clipping ${tileId}: ${width}x${height} px at (${x0}, ${y0})`);
             setStatus(`Bear is baking ${tileId} (${width} × ${height} px) into a GeoTIFF...`);
 
             pyodide.globals.set("_raster_buf", band0);

@@ -50,7 +50,7 @@ export const wsf2019Plugin = {
     bundleName: "wsf2019_tiffs.zip",
     controlsHTML: `
         <div class="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">
-            <strong>WSF 2019 (10m):</strong> Raw binary human settlement mask (<code>255</code> = settlement, <code>0</code> = non-settlement) derived from Sentinel-1 &amp; Sentinel-2.
+            <strong>WSF 2019 (10m):</strong> Raw binary human settlement mask (<code>255</code> = settlement, <code>0</code> = non-settlement) derived from Sentinel-1 & Sentinel-2.
         </div>
     `,
 
@@ -63,36 +63,33 @@ export const wsf2019Plugin = {
             setStatus(`Bear is nibbling WSF 2019 tile (${lon}, ${lat})...`);
             const { tileId, image } = await openWsf2019Tile(lon, lat, log);
 
-            const [imgMinX, imgMinY, imgMaxX, imgMaxY] = image.getBoundingBox();
-            const clipBox = [
-                Math.max(bounds[0], imgMinX),
-                Math.max(bounds[1], imgMinY),
-                Math.min(bounds[2], imgMaxX),
-                Math.min(bounds[3], imgMaxY),
-            ];
-            if (clipBox[0] >= clipBox[2] || clipBox[1] >= clipBox[3]) continue;
-
-            const rasters = await image.readRasters({
-                bbox: clipBox,
-                interleave: false,
-            });
-            const band0 = rasters[0];
-            const width = rasters.width;
-            const height = rasters.height;
-            if (!width || !height) continue;
-
+            const imgWidth = image.getWidth();
+            const imgHeight = image.getHeight();
             const [resX, resY] = image.getResolution();
             const sx = Math.abs(resX);
             const sy = Math.abs(resY);
             const [originX, originY] = image.getOrigin();
 
-            const col0 = Math.max(0, Math.floor((clipBox[0] - originX) / sx));
-            const row0 = Math.max(0, Math.floor((originY - clipBox[3]) / sy));
+            const col0 = Math.max(0, Math.floor((bounds[0] - originX) / sx));
+            const col1 = Math.min(imgWidth, Math.ceil((bounds[2] - originX) / sx));
+            const row0 = Math.max(0, Math.floor((originY - bounds[3]) / sy));
+            const row1 = Math.min(imgHeight, Math.ceil((originY - bounds[1]) / sy));
+
+            if (col1 <= col0 || row1 <= row0) continue;
+
+            const rasters = await image.readRasters({
+                window: [col0, row0, col1, row1],
+                interleave: false,
+            });
+            const band0 = rasters[0];
+            const width = col1 - col0;
+            const height = row1 - row0;
+
             const x0 = originX + col0 * sx;
             const y0 = originY - row0 * sy;
             const nodata = image.getGDALNoData();
 
-            log(`[wsf2019] Clipping ${tileId}: ${width}x${height} px`);
+            log(`[wsf2019] Clipping ${tileId}: ${width}x${height} px at (${x0}, ${y0})`);
             setStatus(`Bear is baking ${tileId} (${width} × ${height} px) into a GeoTIFF...`);
 
             pyodide.globals.set("_raster_buf", band0);

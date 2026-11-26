@@ -12,7 +12,7 @@ function getWsf2015TileIds(bounds) {
     const tiles = [];
     for (let lon = lonStart; lon <= lonEnd; lon += 2) {
         for (let lat = latStart; lat <= latEnd; lat += 2) {
-            tiles.push(`WSF2015_${lon}_${lat}`);
+            tiles.push(`WSF2015_v2_${lon}_${lat}`);
         }
     }
     return tiles;

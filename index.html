@@ -249,6 +249,10 @@ def package_outputs(zip_name="geodata_bundle.zip"):
                     );
                 }
 
+                if (typeof plugin.init === "function") {
+                    await plugin.init(pyodide);
+                }
+
                 const written = await plugin.run({
                     pyodide,
                     bounds,

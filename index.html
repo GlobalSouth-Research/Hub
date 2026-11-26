@@ -35,6 +35,7 @@
                 <option value="wsf2015">World Settlement Footprint (WSF) 2015 — DLR</option>
                 <option value="wsf2019">World Settlement Footprint (WSF) 2019 — DLR</option>
                 <option value="tessera">TESSERA v1.1 (dclimate) - Embeddings</option>
+                <option value="ghsl_built">GHSL Built-up Surface (GHS-BUILT-S) — JRC WCS</option>
             </select>
         </div>
 
@@ -75,6 +76,7 @@
         import { tesseraPlugin } from "./scripts/web/fetch_tessera.js";
         import { wsf2015Plugin } from "./scripts/web/download_wsf2015.js";
         import { wsf2019Plugin } from "./scripts/web/download_wsf2019.js";
+        import { ghslBuiltPlugin } from "./scripts/web/download_ghsl_built.js";
 
         const MAX_AREA_KM2 = 25;
 
@@ -82,6 +84,7 @@
             wsf2015: wsf2015Plugin,
             wsf2019: wsf2019Plugin,
             tessera: tesseraPlugin,
+            ghsl_built: ghslBuiltPlugin
         };
 
         const datasetSelect = document.getElementById("dataset");

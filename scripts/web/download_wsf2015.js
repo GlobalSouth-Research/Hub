@@ -20,7 +20,7 @@ function getWsf2015TileIds(bounds) {
 
 export const wsf2015Plugin = {
     id: "wsf2015",
-    description: "Streams raw World Settlement Footprint (WSF) 2015 (10m) GeoTIFF from DLR.",
+    description: "Streams raw World Settlement Footprint (WSF) 2015 (30m) GeoTIFF from DLR.",
     bundleName: "wsf2015_tiffs.zip",
     controlsHTML: `
         <div class="p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-blue-800">

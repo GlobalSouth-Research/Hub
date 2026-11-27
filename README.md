@@ -84,7 +84,7 @@ Source: MapBiomas Democratic Republic of the Congo. Please consult the official 
 | VIIRS Nighttime Lights (VNP46A1/A2)           | <span class="tag trusted">Trusted</span>    | [NASA LAADS DAAC](https://ladsweb.modaps.eosdis.nasa.gov/)                             | <span class="tag nyi">Not yet implemented</span>         |
 
 
-
+<hr>
 
 <style>
 .tag { padding: 4px 10px; border-radius: 12px; }
